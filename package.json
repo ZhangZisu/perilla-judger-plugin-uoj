@@ -7,5 +7,12 @@
   "devDependencies": {
     "@types/puppeteer": "^1.10.0",
     "tslint": "^5.11.0"
-  }
+  },
+  "name": "perilla-judger-plugin-uoj",
+  "version": "1.0.0",
+  "description": "perilla-judger-plugin-uoj",
+  "main": "dist/index.js",
+  "repository": "https://github.com/ZhangZisu/perilla-judger-plugin-uoj.git",
+  "author": "ZhangZisu <admin@zhangzisu.cn>",
+  "license": "MIT"
 }
