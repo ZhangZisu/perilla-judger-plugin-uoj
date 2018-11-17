@@ -55,4 +55,5 @@ export interface IDetails {
     time?: string;
     memory?: string;
     error?: string;
+    runID?: number;
 }

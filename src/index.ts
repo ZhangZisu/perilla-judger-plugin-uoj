@@ -150,6 +150,7 @@ const fetch = async (runID: number) => {
             details: {
                 time,
                 memory,
+                runID,
             },
         };
         await page.close();
@@ -169,7 +170,7 @@ const updateSolutionResults = async () => {
                 updateMap.delete(runid);
             }
         } catch (e) {
-            cb({ status: SolutionResult.JudgementFailed, score: 0, details: { error: e.message } });
+            cb({ status: SolutionResult.JudgementFailed, score: 0, details: { error: e.message, runID: runid } });
         }
     }
     setTimeout(updateSolutionResults, UPDATE_INTERVAL);
