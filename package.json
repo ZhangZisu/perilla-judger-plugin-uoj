@@ -1,12 +1,16 @@
 {
   "dependencies": {
+    "debug": "^4.1.1",
+    "jsdom": "^13.1.0",
     "path": "^0.12.7",
-    "puppeteer": "^1.10.0",
     "runtypes": "^2.1.6",
+    "superagent": "^4.1.0",
     "typescript": "^3.1.6"
   },
   "devDependencies": {
-    "@types/puppeteer": "^1.10.0",
+    "@types/debug": "^0.0.31",
+    "@types/jsdom": "^12.2.1",
+    "@types/superagent": "^3.8.5",
     "tslint": "^5.11.0"
   },
   "name": "perilla-judger-plugin-uoj",
@@ -15,5 +19,8 @@
   "main": "dist/index.js",
   "repository": "https://github.com/ZhangZisu/perilla-judger-plugin-uoj.git",
   "author": "ZhangZisu <admin@zhangzisu.cn>",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "postversion": "tsc && git add ."
+  }
 }

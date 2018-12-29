@@ -1,115 +1,89 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const debug = require("debug");
 const fs_1 = require("fs");
+const jsdom_1 = require("jsdom");
 const path_1 = require("path");
-const puppeteer_1 = require("puppeteer");
+const superagent_1 = require("superagent");
 const interfaces_1 = require("./interfaces");
 const MAX_SOURCE_SIZE = 16 * 1024 * 1024;
 const UPDATE_INTERVAL = 1000;
 const configPath = path_1.join(__dirname, "..", "config.json");
 const config = JSON.parse(fs_1.readFileSync(configPath).toString());
-let browser = null;
-if (!config.uoj_addr.endsWith("/")) {
-    config.uoj_addr = config.uoj_addr + "/";
-}
-const getURL = (url) => {
-    if (url.startsWith("/")) {
-        return config.uoj_addr + url.substr(1);
-    }
-    return config.uoj_addr + url;
-};
+const agent = superagent_1.agent();
+const log = debug("perilla:judger:plugin:uoj");
 const isLoggedIn = async () => {
-    if (!browser) {
-        return false;
-    }
-    const page = await browser.newPage();
-    try {
-        const res = await page.goto(getURL("user/msg"));
-        const failed = (res.status() !== 200) || !(/私信/.test(await res.text()));
-        await page.close();
-        return !failed;
-    }
-    catch (e) {
-        await page.close();
-        return false;
-    }
+    const result = await agent.get("http://uoj.ac/login");
+    return !!result.redirects.length;
 };
 const initRequest = async () => {
-    console.log("[INFO] [UOJ] Puppeteer is initializing");
-    browser = await puppeteer_1.launch();
-    const page = await browser.newPage();
-    try {
-        await page.goto(getURL("login"));
-        await page.evaluate((username, password) => {
-            const usr = document.querySelector("#input-username");
-            const pwd = document.querySelector("#input-password");
-            usr.value = username;
-            pwd.value = password;
-            const btn = document.querySelector("#button-submit");
-            btn.click();
-        }, config.username, config.password);
-        await page.waitForNavigation();
-        if (!await isLoggedIn()) {
-            throw new Error("Login failed");
-        }
-        await page.close();
-        console.log("[INFO] [UOJ] Puppeteer is initialized");
+    const loginPage = await agent
+        .get("http://uoj.ac/login")
+        .set("Host", "uoj.ac")
+        .set("Referer", "http://uoj.ac/login/")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+    const token = /_token : "([a-zA-Z0-9]+)"/.exec(loginPage.text)[1];
+    log(token);
+    const md5 = require(path_1.join(__dirname, "uoj_md5"));
+    const loginRes = await agent
+        .post("http://uoj.ac/login")
+        .set("Host", "uoj.ac")
+        .set("Referer", "http://uoj.ac/login")
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
+        .set("X-Requested-With", "XMLHttpRequest")
+        .send("_token=" + token)
+        .send("login=")
+        .send("username=" + config.username)
+        .send("password=" + md5(config.password, "uoj233_wahaha!!!!"));
+    if (!await isLoggedIn()) {
+        throw new Error("Login failed");
     }
-    catch (e) {
-        await page.close();
-        throw e;
-    }
+    log("Done");
 };
 const submit = async (id, code, langname) => {
-    const page = await browser.newPage();
     try {
-        await page.goto(getURL("problem/" + id));
-        const success = await page.evaluate((lang, sourcecode) => {
-            const submitBtn = document.querySelector("body > div.container.theme-showcase > div.uoj-content > ul > li:nth-child(2) > a");
-            if (!submitBtn) {
-                return false;
+        const URL = "http://uoj.ac/problem/" + id;
+        const problemPage = await agent
+            .get(URL)
+            .set("Host", "uoj.ac")
+            .set("Referer", "http://uoj.ac/login/")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+        const token = /name=\"_token\" value=\"([a-zA-Z0-9]+)\"/.exec(problemPage.text)[1];
+        log(token);
+        const preCheck = await agent
+            .post(URL)
+            .set("Host", "uoj.ac")
+            .set("Origin", "http://uoj.ac")
+            .set("Referer", URL)
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
+            .set("X-Requested-With", "XMLHttpRequest")
+            .send("check-answer=");
+        const submissions = await agent
+            .post(URL)
+            .set("Host", "uoj.ac")
+            .set("Origin", "http://uoj.ac")
+            .set("Referer", URL)
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
+            .send("_token=" + encodeURIComponent(token))
+            .send("answer_answer_language=" + encodeURIComponent(langname))
+            .send("answer_answer_upload_type=editor")
+            .send("answer_answer_editor=" + encodeURIComponent(code))
+            .send("submit-answer=answer");
+        const dom = new jsdom_1.JSDOM(submissions.text);
+        const resultTable = dom.window.document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody");
+        const resultRows = resultTable.querySelectorAll("tr");
+        for (const resultRow of resultRows) {
+            if (!resultRow.childNodes[2]) {
+                continue;
             }
-            submitBtn.click();
-            const langEle = document.querySelector("#input-answer_answer_language");
-            if (!langEle) {
-                return false;
+            if (resultRow.childNodes[2].textContent !== config.username) {
+                continue;
             }
-            const codeEle = document.querySelector("#input-answer_answer_editor");
-            if (!codeEle) {
-                return false;
-            }
-            langEle.value = lang;
-            codeEle.value = sourcecode;
-            const btn = document.querySelector("#button-submit-answer");
-            btn.click();
-            return true;
-        }, langname, code);
-        if (!success) {
-            throw new Error("Submit failed");
+            return parseInt(resultRow.childNodes[0].textContent.trim().substr(1), 10);
         }
-        await page.waitForNavigation();
-        const unparsedID = await page.evaluate((username) => {
-            const tbody = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody");
-            for (let i = 0; i < tbody.children.length; i++) {
-                const tr = tbody.children[i];
-                if (tr.getAttribute("class") === "info") {
-                    continue;
-                }
-                const user = tr.children[2].textContent.trim();
-                if (user === username) {
-                    return tr.children[0].textContent.trim().substr(1);
-                }
-            }
-            return null;
-        }, config.username);
-        if (unparsedID === null) {
-            throw new Error("Submit failed");
-        }
-        await page.close();
-        return parseInt(unparsedID, 10);
+        throw new Error("Submit failed");
     }
     catch (e) {
-        await page.close();
         throw e;
     }
 };
@@ -145,34 +119,32 @@ const convertStatus = (text) => {
     }
 };
 const fetch = async (runID) => {
-    const page = await browser.newPage();
     try {
-        await page.goto(getURL("submission/" + runID));
-        const { memory, time, statusText } = await page.evaluate(() => {
-            const mEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(5)");
-            const tEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(6)");
-            const sEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(4)");
-            return {
-                memory: mEle.textContent.trim(),
-                time: tEle.textContent.trim(),
-                statusText: sEle.textContent.trim(),
-            };
-        });
-        const { status, score } = convertStatus(statusText);
+        const URL = "http://uoj.ac/submission/" + runID;
+        const submissionPage = await agent
+            .get(URL)
+            .set("Host", "uoj.ac")
+            .set("Referer", "http://uoj.ac/submissions/")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+        const dom = new jsdom_1.JSDOM(submissionPage.text);
+        const resultRow = dom.window.document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody").childNodes[0];
+        const { status, score } = convertStatus(resultRow.childNodes[3].textContent.trim());
         const result = {
             status,
             score,
             details: {
-                time,
-                memory,
                 runID,
+                time: resultRow.childNodes[4].textContent.trim(),
+                memory: resultRow.childNodes[5].textContent.trim(),
+                remoteUser: resultRow.childNodes[2].textContent.trim(),
+                remoteProblem: resultRow.childNodes[1].textContent.trim(),
+                submitTime: resultRow.childNodes[8].textContent.trim(),
+                judgeTime: resultRow.childNodes[9].textContent.trim(),
             },
         };
-        await page.close();
         return result;
     }
     catch (e) {
-        await page.close();
         throw e;
     }
 };
@@ -194,12 +166,11 @@ const updateSolutionResults = async () => {
 const main = async (problem, solution, resolve, update) => {
     if (interfaces_1.Problem.guard(problem)) {
         if (interfaces_1.Solution.guard(solution)) {
-            if (!browser) {
+            if (!await isLoggedIn()) {
                 try {
                     await initRequest();
                 }
                 catch (e) {
-                    browser = null;
                     return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: e.message } });
                 }
             }
@@ -236,6 +207,7 @@ const main = async (problem, solution, resolve, update) => {
                 updateMap.set(runID, update);
             }
             catch (e) {
+                log(e.message);
                 return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "Invalid solution" } });
             }
         }

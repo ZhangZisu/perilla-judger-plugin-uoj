@@ -56,4 +56,8 @@ export interface IDetails {
     memory?: string;
     error?: string;
     runID?: number;
+    remoteUser?: string;
+    submitTime?: string;
+    judgeTime?: string;
+    remoteProblem?: string;
 }
