@@ -56,15 +56,16 @@ const submit = async (id, code, langname) => {
             .set("Origin", "http://uoj.ac")
             .set("Referer", URL)
             .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
-            .set("X-Requested-With", "XMLHttpRequest");
+            .set("X-Requested-With", "XMLHttpRequest")
+            .send("check-answer=");
         const submissions = await agent
             .post(URL)
             .set("Host", "uoj.ac")
             .set("Origin", "http://uoj.ac")
             .set("Referer", URL)
             .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36")
-            .send("_token=" + token)
-            .send("answer_answer_language=" + langname)
+            .send("_token=" + encodeURIComponent(token))
+            .send("answer_answer_language=" + encodeURIComponent(langname))
             .send("answer_answer_upload_type=editor")
             .send("answer_answer_editor=" + encodeURIComponent(code))
             .send("submit-answer=answer");
@@ -132,15 +133,15 @@ const fetch = async (runID) => {
             status,
             score,
             details: {
-                time: r.childNodes[4].textContent.trim(),
-                memory: r.childNodes[5].textContent.trim(),
                 runID,
-                remoteUser: r.childNodes[2].textContent.trim(),
-                submitTime: ,
-                judgeTime: ,
+                time: resultRow.childNodes[4].textContent.trim(),
+                memory: resultRow.childNodes[5].textContent.trim(),
+                remoteUser: resultRow.childNodes[2].textContent.trim(),
+                remoteProblem: resultRow.childNodes[1].textContent.trim(),
+                submitTime: resultRow.childNodes[8].textContent.trim(),
+                judgeTime: resultRow.childNodes[9].textContent.trim(),
             },
         };
-        await page.close();
         return result;
     }
     catch (e) {
@@ -148,15 +149,76 @@ const fetch = async (runID) => {
     }
 };
 const updateSolutionResults = async () => {
+    for (const [runid, cb] of updateMap) {
+        try {
+            const result = await fetch(runid);
+            cb(result);
+            if (result.status !== interfaces_1.SolutionResult.Judging && result.status !== interfaces_1.SolutionResult.WaitingJudge) {
+                updateMap.delete(runid);
+            }
+        }
+        catch (e) {
+            cb({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: e.message, runID: runid } });
+        }
+    }
+    setTimeout(updateSolutionResults, UPDATE_INTERVAL);
 };
 const main = async (problem, solution, resolve, update) => {
+    if (interfaces_1.Problem.guard(problem)) {
+        if (interfaces_1.Solution.guard(solution)) {
+            if (!await isLoggedIn()) {
+                try {
+                    await initRequest();
+                }
+                catch (e) {
+                    return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: e.message } });
+                }
+            }
+            try {
+                let langname = null;
+                if (solution.language === "c") {
+                    langname = "C";
+                }
+                else if (solution.language === "cpp98") {
+                    langname = "C++";
+                }
+                else if (solution.language === "cpp11") {
+                    langname = "C++11";
+                }
+                else if (solution.language === "java") {
+                    langname = "Java8";
+                }
+                else if (solution.language === "python3") {
+                    langname = "Python3";
+                }
+                else if (solution.language === "python2") {
+                    langname = "Python2.7";
+                }
+                if (langname === null) {
+                    return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "Language rejected" } });
+                }
+                const source = await resolve(solution.file);
+                const stat = fs_1.statSync(source.path);
+                if (stat.size > MAX_SOURCE_SIZE) {
+                    return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "File is too big" } });
+                }
+                const content = fs_1.readFileSync(source.path).toString();
+                const runID = await submit(problem.id, content, langname);
+                updateMap.set(runID, update);
+            }
+            catch (e) {
+                log(e.message);
+                return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "Invalid solution" } });
+            }
+        }
+        else {
+            return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "Invalid solution" } });
+        }
+    }
+    else {
+        return update({ status: interfaces_1.SolutionResult.JudgementFailed, score: 0, details: { error: "Invalid problem" } });
+    }
 };
 module.exports = main;
 updateSolutionResults();
-const test = async () => {
-    log(await isLoggedIn());
-    await initRequest();
-    log(await submit(1, "print(map(int, input().split()).sum())", "Python2.7"));
-};
-test();
 //# sourceMappingURL=index.js.map
