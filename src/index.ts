@@ -23,7 +23,7 @@ const initRequest = async () => {
     const loginPage = await agent
         .get("http://uoj.ac/login")
         .set("Host", "uoj.ac")
-        .set("Referer", config.uoj_addr)
+        .set("Referer", "http://uoj.ac/login/")
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
     const token = /_token : "([a-zA-Z0-9]+)"/.exec(loginPage.text)[1];
     log(token);
@@ -48,7 +48,7 @@ const submit = async (id: number, code: string, langname: string) => {
         const problemPage = await agent
             .get(URL)
             .set("Host", "uoj.ac")
-            .set("Referer", config.uoj_addr)
+            .set("Referer", "http://uoj.ac/login/")
             .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
         const token = /name=\"_token\" value=\"([a-zA-Z0-9]+)\"/.exec(problemPage.text)[1];
         log(token);
@@ -115,35 +115,34 @@ const convertStatus = (text: string) => {
 };
 
 const fetch = async (runID: number) => {
-    // const page = await browser.newPage();
-    // try {
-    //     await page.goto(getURL("submission/" + runID));
-    //     const { memory, time, statusText } = await page.evaluate(() => {
-    //         const mEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(5)");
-    //         const tEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(6)");
-    //         const sEle = document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody > tr > td:nth-child(4)");
-    //         return {
-    //             memory: mEle.textContent.trim(),
-    //             time: tEle.textContent.trim(),
-    //             statusText: sEle.textContent.trim(),
-    //         };
-    //     });
-    //     const { status, score } = convertStatus(statusText);
-    //     const result: ISolution = {
-    //         status,
-    //         score,
-    //         details: {
-    //             time,
-    //             memory,
-    //             runID,
-    //         },
-    //     };
-    //     await page.close();
-    //     return result;
-    // } catch (e) {
-    //     await page.close();
-    //     throw e;
-    // }
+    try {
+        const URL = "http://uoj.ac/submission/" + runID;
+        const submissionPage = await agent
+            .get(URL)
+            .set("Host", "uoj.ac")
+            .set("Referer", "http://uoj.ac/submissions/")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36");
+        const dom = new JSDOM(submissionPage.text);
+        const resultRow = dom.window.document.querySelector("body > div > div.uoj-content > div.table-responsive > table > tbody").childNodes[0];
+        const {status, score} = convertStatus(resultRow.childNodes[3].textContent.trim());
+        const result: ISolution = {
+            status,
+            score,
+            details: {
+                time: r.childNodes[4].textContent.trim(),
+                memory: r.childNodes[5].textContent.trim(),
+                runID,
+                remoteUser: r.childNodes[2].textContent.trim(),
+                submitTime: ,
+                judgeTime: ,
+
+            },
+        };
+        await page.close();
+        return result;
+    } catch (e) {
+        throw e;
+    }
 };
 
 const updateSolutionResults = async () => {
@@ -216,7 +215,7 @@ updateSolutionResults();
 const test = async () => {
     log(await isLoggedIn());
     await initRequest();
-    log("DONE");
+    log(await submit(1, "print(map(int, input().split()).sum())", "Python2.7"));
 };
 
 test();
